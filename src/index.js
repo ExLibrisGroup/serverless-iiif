@@ -1,12 +1,9 @@
-/*
- * IMPLEMENTATION NOTE: API Gateway Lambda functions have a 
- * ~6MB payload limit. See LAMBDA_LIMIT.md for implications
- * and a workaround.
- */
 
 const AWS = require('aws-sdk');
 const IIIF = require('iiif-processor');
 const middy = require('middy');
+const md5 = require('md5');
+const Utils = require('./utils.js');
 const { cors, httpHeaderNormalizer } = require('middy/middlewares');
 
 const handleRequest = (event, context, callback) => {
@@ -27,16 +24,22 @@ class IIIFLambda {
     this.initResource();
   }
 
-  directResponse (result) {
+  directResponse (result) {    
     var base64 = /^image\//.test(result.contentType);
     var content = base64 ? result.body.toString('base64') : result.body;
-    var response = {
-      statusCode: 200,
-      headers: { 'Content-Type': result.contentType },
-      isBase64Encoded: base64,
-      body: content
-    };
-    this.respond(null, response);
+    if (content.length > 5*1024*1024) {
+      this.cacheResult(result, (cacheUrl) => 
+        this.respond(null, { statusCode: 303, headers: { Location: cacheUrl } }));
+    } else {
+      var response = {
+        statusCode: 200,
+        headers: { 'Content-Type': result.contentType },
+        isBase64Encoded: base64,
+        body: content
+      };
+      this.respond(null, response);
+      this.cacheResult(result);
+    }
   }
 
   handleError (err, resource) {
@@ -60,6 +63,40 @@ class IIIFLambda {
   initResource () {
     var scheme = this.event.headers['X-Forwarded-Proto'] || 'http';
     var host = this.event.headers['Host'];
+    var path = this.path();
+    var uri = `${scheme}://${host}${path}`;
+
+    this.resource = new IIIF.Processor(uri, id => this.s3Object(id));
+  }
+
+  async processRequest () {
+    AWS.config.region = this.context.invokedFunctionArn.match(/^arn:aws:lambda:(\w+-\w+-\d+):/)[1];
+    const cacheUrl = ''//await this.checkCache();
+    if (this.event.httpMethod === 'OPTIONS') {
+      this.respond(null, { statusCode: 204, body: null });
+    } else if (cacheUrl) {
+      this.respond(null, { statusCode: 303, headers: { Location: cacheUrl } });
+    } else {
+      this.resource.execute()
+        .then(result => this.directResponse(result))
+        .catch(err => this.handleError(err))
+        .finally(() => Utils.clearDir(require('os').tmpdir()));
+    }
+  }
+
+  cacheResult ( result, callback = () => null ) {
+    const s3 = new AWS.S3();
+    const params = {
+      Bucket: this.sourceBucket,
+      Key: this.cacheKey(),
+      ContentType: result.contentType,
+      Body: result.body
+    };
+    s3.upload( params, ( err, data ) => 
+      callback(s3.getSignedUrl('getObject', { Bucket: params.Bucket, Key: params.Key } )))
+  }
+
+  path() {
     var path = this.event.path;
     if (!/\.(jpg|tif|gif|png|json)$/.test(path)) {
       path = path + '/info.json';
@@ -67,20 +104,22 @@ class IIIFLambda {
     if (process.env.include_stage) {
       path = '/' + this.event.requestContext.stage + path;
     }
-    var uri = `${scheme}://${host}${path}`;
-
-    this.resource = new IIIF.Processor(uri, id => this.s3Object(id));
+    return path;
   }
 
-  processRequest () {
-    AWS.config.region = this.context.invokedFunctionArn.match(/^arn:aws:lambda:(\w+-\w+-\d+):/)[1];
+  cacheKey () {
+    let path = this.path();
+    return `iiif-cache/${md5(path).match(/.{1,2}/g).join('/')}${path.substring(path.lastIndexOf('/'))}`;
+  }  
 
-    if (this.event.httpMethod === 'OPTIONS') {
-      this.respond(null, { statusCode: 204, body: null });
-    } else {
-      this.resource.execute()
-        .then(result => this.directResponse(result))
-        .catch(err => this.handleError(err));
+  async checkCache () {
+    const s3 = new AWS.S3();
+    const params = { Bucket: this.sourceBucket, Key: this.cacheKey() };
+    try {
+      await s3.headObject(params).promise();
+      return s3.getSignedUrl('getObject', params);
+    } catch(e) {
+      return false;
     }
   }
 
@@ -88,7 +127,7 @@ class IIIFLambda {
     var s3 = new AWS.S3();
     return s3.getObject({
       Bucket: this.sourceBucket,
-      Key: `${id}.tif`
+      Key: id + (/\.(\w*)$/.test(id) ? '' : '.tif')
     }).createReadStream();
   }
 }

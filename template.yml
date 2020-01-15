@@ -7,6 +7,13 @@ Parameters:
     Type: String
     Description: Name of the API stage to be deployed
     Default: latest
+  IncludeStage:
+    Type: String
+    Description: Include stage in API gateway path
+  VipsDiscThreshold:
+    Type: String
+    Description: Temp disk space for use by VIPS
+    Default: 600m
 Resources:
   Dependencies:
     Type: "AWS::Serverless::LayerVersion"
@@ -20,10 +27,10 @@ Resources:
   IiifFunction:
     Type: 'AWS::Serverless::Function'
     Properties:
-      Runtime: nodejs10.x
+      Runtime: nodejs12.x
       Handler: index.handler
       MemorySize: 3008
-      Timeout: 10
+      Timeout: 30
       CodeUri: ./src
       Layers:
       - !Ref Dependencies
@@ -48,6 +55,8 @@ Resources:
       Environment:
         Variables:
           tiffBucket: !Sub "${SourceBucket}"
+          include_stage: !Sub "${IncludeStage}"
+          VIPS_DISC_THRESHOLD: !Sub "${VipsDiscThreshold}"
       Events:
         GetId:
           Type: Api
