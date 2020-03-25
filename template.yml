@@ -23,6 +23,8 @@ Resources:
       ContentUri: ./dependencies
       CompatibleRuntimes:
         - nodejs8.10
+        - nodejs10.x
+        - nodejs12.x
       LicenseInfo: 'Apache-2.0'
   IiifFunction:
     Type: 'AWS::Serverless::Function'

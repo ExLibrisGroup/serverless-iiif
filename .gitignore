@@ -1,5 +1,5 @@
 .aws-sam
 deploy.yaml
 node_modules
-package-lock.json
 samconfig.toml
+dependencies/lib/*
