@@ -32,7 +32,7 @@ Resources:
       Runtime: nodejs12.x
       Handler: index.handler
       MemorySize: 3008
-      Timeout: 30
+      Timeout: 300
       CodeUri: ./src
       Layers:
       - !Ref Dependencies
@@ -59,6 +59,10 @@ Resources:
           tiffBucket: !Sub "${SourceBucket}"
           include_stage: !Sub "${IncludeStage}"
           VIPS_DISC_THRESHOLD: !Sub "${VipsDiscThreshold}"
+          MAGICK_CODER_FILTER_PATH: "/opt/lib/ImageMagick/modules-Q16/filters"
+          MAGICK_CODER_MODULE_PATH: "/opt/lib/ImageMagick/modules-Q16/coders"
+          MAGICK_CONFIGURE_PATH: "/opt/lib/ImageMagick/config"
+          LD_LIBRARY_PATH: "/opt/lib"
       Events:
         GetId:
           Type: Api
