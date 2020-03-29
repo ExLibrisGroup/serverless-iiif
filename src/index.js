@@ -71,7 +71,7 @@ class IIIFLambda {
 
   async processRequest () {
     AWS.config.region = this.context.invokedFunctionArn.match(/^arn:aws:lambda:(\w+-\w+-\d+):/)[1];
-    const cacheUrl = ''//await this.checkCache();
+    const cacheUrl = await this.checkCache();
     if (this.event.httpMethod === 'OPTIONS') {
       this.respond(null, { statusCode: 204, body: null });
     } else if (cacheUrl) {
