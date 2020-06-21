@@ -8,7 +8,7 @@ const { cors, httpHeaderNormalizer } = require('middy/middlewares');
 
 const handleRequest = (event, context, callback) => {
   try {
-    new IIIFLambda(event, context, callback, process.env.tiffBucket)
+    new IIIFLambda(event, context, callback)
       .processRequest();
   } catch (err) {
     callback(err, null);
@@ -16,11 +16,11 @@ const handleRequest = (event, context, callback) => {
 };
 
 class IIIFLambda {
-  constructor (event, context, callback, sourceBucket) {
+  constructor (event, context, callback) {
     this.event = event;
     this.context = context;
     this.respond = callback;
-    this.sourceBucket = sourceBucket;
+    this.sourceBucket = this.getBucketFromIdentifier();
     this.initResource();
   }
 
@@ -96,6 +96,34 @@ class IIIFLambda {
       callback(s3.getSignedUrl('getObject', { Bucket: params.Bucket, Key: params.Key } )))
   }
 
+  getBucketFromIdentifier(){    
+    var bucket= process.env.tiffBucket;
+    try {
+      var id=this.event.path.substring(8);
+      id= id.substring(0, id.indexOf('/'));
+      var decode= Buffer.from(decodeURIComponent(id), 'base64').toString('utf8');
+      var identifier = JSON.parse(decode);
+      bucket= identifier.bucket;
+    } catch(err) {
+      console.error(err);
+    }
+    
+    console.log('bucket: ' + bucket);
+    return bucket;
+  }
+  
+  getKeyFromIdentifier(id){
+    var key= id;
+    try {
+      var decode= Buffer.from(decodeURIComponent(id), 'base64').toString('utf8');
+      var identifier = JSON.parse(decode);
+      key= identifier.key;
+    } catch(err) {
+      console.error(err);
+    }
+    return key;
+  }
+
   path() {
     var path = this.event.path;
     if (!/\.(jpg|tif|gif|png|json)$/.test(path)) {
@@ -114,7 +142,12 @@ class IIIFLambda {
 
   async checkCache () {
     const s3 = new AWS.S3();
-    const params = { Bucket: this.sourceBucket, Key: this.cacheKey() };
+    var cacheKey= this.cacheKey();
+    if (cacheKey.endsWith('info.json')){
+      return false;
+    }
+
+    const params = { Bucket: this.sourceBucket, Key: cacheKey };
     try {
       await s3.headObject(params).promise();
       return s3.getSignedUrl('getObject', params);
@@ -124,6 +157,7 @@ class IIIFLambda {
   }
 
   s3Object (id) {
+    var id= this.getKeyFromIdentifier(id);
     var s3 = new AWS.S3();
     return s3.getObject({
       Bucket: this.sourceBucket,
